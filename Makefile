@@ -41,8 +41,8 @@ CXX:=$(shell sh -c 'type $${CXX%% *} >/dev/null 2>/dev/null && echo $(CXX) || ec
 OPTIMIZATION?=-O3
 WARNINGS=-Wall -W -Wstrict-prototypes -Wwrite-strings -Wno-missing-field-initializers
 DEBUG_FLAGS?= -g -ggdb
-REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS)
-REAL_LDFLAGS=$(LDFLAGS)
+REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CPPFLAGS) $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS) $(ARCH)
+REAL_LDFLAGS=$(LDFLAGS) $(ARCH) -lrt
 
 DYLIBSUFFIX=so
 STLIBSUFFIX=a
@@ -84,6 +84,7 @@ endif
 
 
 # Platform-specific overrides
+# TODO: Portability
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # This is required for test.c only
@@ -151,6 +152,7 @@ hiredis.o: hiredis.c fmacros.h hiredis.h read.h sds.h alloc.h net.h async.h win3
 net.o: net.c fmacros.h net.h hiredis.h read.h sds.h alloc.h sockcompat.h win32.h
 read.o: read.c fmacros.h alloc.h read.h sds.h win32.h
 sds.o: sds.c sds.h sdsalloc.h alloc.h
+shm.o: shm.c shm.h
 sockcompat.o: sockcompat.c sockcompat.h
 test.o: test.c fmacros.h hiredis.h read.h sds.h alloc.h net.h sockcompat.h win32.h
 
@@ -256,6 +258,9 @@ check: hiredis-test
 .c.o:
 	$(CC) -std=c99 -c $(REAL_CFLAGS) $<
 
+shm.o:
+	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) -D_XOPEN_SOURCE=500 $<
+
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(SSL_DYLIBNAME) $(SSL_STLIBNAME) $(TESTS) $(PKGCONFNAME) examples/hiredis-example* *.o *.gcda *.gcno *.gcov
 
@@ -293,7 +298,7 @@ $(SSL_PKGCONFNAME): hiredis_ssl.h
 
 install: $(DYLIBNAME) $(STLIBNAME) $(PKGCONFNAME) $(SSL_INSTALL)
 	mkdir -p $(INSTALL_INCLUDE_PATH) $(INSTALL_INCLUDE_PATH)/adapters $(INSTALL_LIBRARY_PATH)
-	$(INSTALL) hiredis.h async.h read.h sds.h alloc.h $(INSTALL_INCLUDE_PATH)
+	$(INSTALL) hiredis.h async.h read.h sds.h shm.h alloc.h $(INSTALL_INCLUDE_PATH)
 	$(INSTALL) adapters/*.h $(INSTALL_INCLUDE_PATH)/adapters
 	$(INSTALL) $(DYLIBNAME) $(INSTALL_LIBRARY_PATH)/$(DYLIB_MINOR_NAME)
 	cd $(INSTALL_LIBRARY_PATH) && ln -sf $(DYLIB_MINOR_NAME) $(DYLIBNAME)

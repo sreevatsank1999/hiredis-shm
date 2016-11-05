@@ -43,7 +43,9 @@ typedef long long ssize_t;
 #endif
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
-#include "alloc.h" /* for allocation wrappers */
+#include "shm.h" /* for sharedMemoryContext */ /*TODO: I don't like including this here...*/
+
+/*TODO: Read the files line by line to see if something is not missed.*/
 
 #define HIREDIS_MAJOR 1
 #define HIREDIS_MINOR 0
@@ -52,7 +54,7 @@ typedef long long ssize_t;
 
 /* Connection type can be blocking or non-blocking and is set in the
  * least significant bit of the flags field in redisContext. */
-#define REDIS_BLOCK 0x1
+#define REDIS_BLOCK 0x1 /*TODO: Use this and check out other flags.*/
 
 /* Connection may be disconnected before being free'd. The second bit
  * in the flags field is set when the context is connected. */
@@ -281,6 +283,8 @@ typedef struct redisContext {
 
     /* An optional RESP3 PUSH handler */
     redisPushFn *push_cb;
+    sharedMemoryContext shm_context;
+
 } redisContext;
 
 redisContext *redisConnectWithOptions(const redisOptions *options);

@@ -712,6 +712,7 @@ static redisContext *redisContextInit(void) {
         redisFree(c);
         return NULL;
     }
+    sharedMemoryContextInit(&c->shm_context);
 
     return c;
 }
@@ -736,17 +737,20 @@ void redisFree(redisContext *c) {
     if (c->funcs->free_privctx)
         c->funcs->free_privctx(c->privctx);
 
+    sharedMemoryContextFree(&c->shm_context);
+
     memset(c, 0xff, sizeof(*c));
     hi_free(c);
 }
 
-redisFD redisFreeKeepFd(redisContext *c) {
-    redisFD fd = c->fd;
-    c->fd = REDIS_INVALID_FD;
+int redisFreeKeepFd(redisContext *c) {
+    int fd = c->fd;
+    c->fd = -1;
     redisFree(c);
     return fd;
 }
 
+/* TODO: Here and in a gazillion other places, shared memory context needs to be poked. */
 int redisReconnect(redisContext *c) {
     c->err = 0;
     memset(c->errstr, '\0', strlen(c->errstr));
@@ -786,7 +790,12 @@ int redisReconnect(redisContext *c) {
         redisContextSetTimeout(c, *c->command_timeout);
     }
 
+    redisAfterConnect(c);
+
     return ret;
+}
+static void redisAfterConnect(redisContext* c) {
+    sharedMemoryAfterConnect(c);
 }
 
 redisContext *redisConnectWithOptions(const redisOptions *options) {
@@ -841,6 +850,8 @@ redisContext *redisConnectWithOptions(const redisOptions *options) {
     if (options->command_timeout != NULL && (c->flags & REDIS_BLOCK) && c->fd != REDIS_INVALID_FD) {
         redisContextSetTimeout(c, *options->command_timeout);
     }
+
+    redisAfterConnect(c);
 
     return c;
 }
@@ -939,15 +950,22 @@ redisPushFn *redisSetPushCallback(redisContext *c, redisPushFn *fn) {
  *
  * After this function is called, you may use redisGetReplyFromReader to
  * see if there is a reply available. */
+volatile int total = 0;
 int redisBufferRead(redisContext *c) {
     char buf[1024*16];
     int nread;
+    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
 
-    nread = c->funcs->read(c, buf, sizeof(buf));
+    if (c->shm_context.in_use) 
+        nread = sharedMemoryRead(c,buf,sizeof(buf));
+        // total += nread;
+    else 
+        nread = c->funcs->read(c, buf, sizeof(buf));
+
     if (nread < 0) {
         return REDIS_ERR;
     }
@@ -972,9 +990,14 @@ int redisBufferWrite(redisContext *c, int *done) {
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
-
+    
     if (sdslen(c->obuf) > 0) {
-        ssize_t nwritten = c->funcs->write(c);
+        ssize_t nwritten;
+        if (c->shm_context.in_use)
+            nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
+        else 
+            nwritten = c->funcs->write(c);
+            
         if (nwritten < 0) {
             return REDIS_ERR;
         } else if (nwritten > 0) {
