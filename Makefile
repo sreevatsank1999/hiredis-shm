@@ -3,7 +3,7 @@
 # Copyright (C) 2010-2011 Pieter Noordhuis <pcnoordhuis at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
-OBJ=alloc.o net.o hiredis.o sds.o async.o read.o sockcompat.o
+OBJ=alloc.o net.o hiredis.o sds.o shm.o async.o read.o sockcompat.o
 EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev hiredis-example-glib hiredis-example-push
 TESTS=hiredis-test
 LIBNAME=libhiredis
@@ -341,3 +341,39 @@ noopt:
 	$(MAKE) OPTIMIZATION=""
 
 .PHONY: all test check clean dep install 32bit 32bit-vars gprof gcov noopt
+
+#set environment variable RM_INCLUDE_DIR to the location of redismodule.h
+ifndef RM_INCLUDE_DIR
+	RM_INCLUDE_DIR=.
+endif
+
+#set environment variable REDIS_INCLUDE_DIR to the location of redis/src/*.h
+ifndef REDIS_INCLUDE_DIR
+	REDIS_INCLUDE_DIR=redis/src/
+endif
+
+# find the OS
+uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
+
+# Compile flags for linux / osx
+ifeq ($(uname_S),Linux)
+	SHOBJ_CFLAGS ?=  -fno-common -g -ggdb
+	SHOBJ_LDFLAGS ?= -shared -Bsymbolic
+else
+	SHOBJ_CFLAGS ?= -dynamic -fno-common -g -ggdb
+	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
+endif
+CFLAGS = -I$(RM_INCLUDE_DIR) -I$(REDIS_INCLUDE_DIR) -g -fPIC -O3 -std=gnu99 -Wall
+#LDFLAGS = -g -lrt
+CC=gcc
+.SUFFIXES: .c .so .o
+
+MODULE = module-shm
+
+all: $(MODULE)
+
+$(MODULE): %: %.o
+	$(LD) -o $@.so $< $(SHOBJ_LDFLAGS) $(LIBS) -lrt
+
+clean:
+	rm -rf *.so *.o

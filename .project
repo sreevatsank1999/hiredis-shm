@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <projectDescription>
-	<name>hiredis</name>
+	<name>redis-module-shm</name>
 	<comment></comment>
 	<projects>
 	</projects>
