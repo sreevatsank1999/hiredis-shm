@@ -3,7 +3,7 @@
 # Copyright (C) 2010-2011 Pieter Noordhuis <pcnoordhuis at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
-OBJ=net.o hiredis.o sds.o async.o read.o
+OBJ=net.o hiredis.o sds.o async.o read.o shm.o
 EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev hiredis-example-glib
 TESTS=hiredis-test
 LIBNAME=libhiredis
@@ -42,7 +42,7 @@ OPTIMIZATION?=-O3
 WARNINGS=-Wall -W -Wstrict-prototypes -Wwrite-strings
 DEBUG_FLAGS?= -g -ggdb
 REAL_CFLAGS=$(OPTIMIZATION) -fPIC $(CFLAGS) $(WARNINGS) $(DEBUG_FLAGS) $(ARCH)
-REAL_LDFLAGS=$(LDFLAGS) $(ARCH)
+REAL_LDFLAGS=$(LDFLAGS) $(ARCH) -lrt
 
 DYLIBSUFFIX=so
 STLIBSUFFIX=a
@@ -54,6 +54,7 @@ STLIBNAME=$(LIBNAME).$(STLIBSUFFIX)
 STLIB_MAKE_CMD=ar rcs $(STLIBNAME)
 
 # Platform-specific overrides
+# TODO: Portability
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 ifeq ($(uname_S),SunOS)
   REAL_LDFLAGS+= -ldl -lnsl -lsocket
@@ -75,6 +76,7 @@ hiredis.o: hiredis.c fmacros.h hiredis.h read.h sds.h net.h
 net.o: net.c fmacros.h net.h hiredis.h read.h sds.h
 read.o: read.c fmacros.h read.h sds.h
 sds.o: sds.c sds.h
+shm.o: shm.c shm.h
 test.o: test.c fmacros.h hiredis.h read.h sds.h
 
 $(DYLIBNAME): $(OBJ)
@@ -155,6 +157,9 @@ check: hiredis-test
 .c.o:
 	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
 
+shm.o:
+	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) -D_XOPEN_SOURCE=500 $<
+
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(TESTS) $(PKGCONFNAME) examples/hiredis-example* *.o *.gcda *.gcno *.gcov
 
@@ -182,7 +187,7 @@ $(PKGCONFNAME): hiredis.h
 
 install: $(DYLIBNAME) $(STLIBNAME) $(PKGCONFNAME)
 	mkdir -p $(INSTALL_INCLUDE_PATH) $(INSTALL_LIBRARY_PATH)
-	$(INSTALL) hiredis.h async.h read.h sds.h adapters $(INSTALL_INCLUDE_PATH)
+	$(INSTALL) hiredis.h async.h read.h sds.h shm.h adapters $(INSTALL_INCLUDE_PATH)
 	$(INSTALL) $(DYLIBNAME) $(INSTALL_LIBRARY_PATH)/$(DYLIB_MINOR_NAME)
 	cd $(INSTALL_LIBRARY_PATH) && ln -sf $(DYLIB_MINOR_NAME) $(DYLIBNAME)
 	$(INSTALL) $(STLIBNAME) $(INSTALL_LIBRARY_PATH)

@@ -609,6 +609,7 @@ static redisContext *redisContextInit(void) {
         redisFree(c);
         return NULL;
     }
+    sharedMemoryContextInit(&c->shm_context);
 
     return c;
 }
@@ -630,6 +631,7 @@ void redisFree(redisContext *c) {
         free(c->unix_sock.path);
     if (c->timeout)
         free(c->timeout);
+    sharedMemoryContextFree(&c->shm_context);
     free(c);
 }
 
@@ -640,6 +642,7 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
+/* TODO: Here and in a gazillion other places, shared memory context needs to be poked. */
 int redisReconnect(redisContext *c) {
     c->err = 0;
     memset(c->errstr, '\0', strlen(c->errstr));
@@ -668,6 +671,10 @@ int redisReconnect(redisContext *c) {
     return REDIS_ERR;
 }
 
+static void redisAfterConnect(redisContext* c) {
+    sharedMemoryAfterConnect(c);
+}
+
 /* Connect to a Redis instance. On error the field error in the returned
  * context will be set to the return value of the error function.
  * When no set of reply functions is given, the default set will be used. */
@@ -680,6 +687,7 @@ redisContext *redisConnect(const char *ip, int port) {
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,NULL);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -692,6 +700,7 @@ redisContext *redisConnectWithTimeout(const char *ip, int port, const struct tim
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,&tv);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -704,6 +713,7 @@ redisContext *redisConnectNonBlock(const char *ip, int port) {
 
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,NULL);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -712,6 +722,7 @@ redisContext *redisConnectBindNonBlock(const char *ip, int port,
     redisContext *c = redisContextInit();
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -721,6 +732,7 @@ redisContext *redisConnectBindNonBlockWithReuse(const char *ip, int port,
     c->flags &= ~REDIS_BLOCK;
     c->flags |= REDIS_REUSEADDR;
     redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -733,6 +745,7 @@ redisContext *redisConnectUnix(const char *path) {
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectUnix(c,path,NULL);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -745,6 +758,7 @@ redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectUnix(c,path,&tv);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -757,6 +771,7 @@ redisContext *redisConnectUnixNonBlock(const char *path) {
 
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectUnix(c,path,NULL);
+    redisAfterConnect(c);
     return c;
 }
 
@@ -791,17 +806,35 @@ int redisEnableKeepAlive(redisContext *c) {
  *
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
+volatile int total = 0;
 int redisBufferRead(redisContext *c) {
     char buf[1024*16];
     int nread;
+    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
 
-    nread = read(c->fd,buf,sizeof(buf));
-    if (nread == -1) {
-        if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
+    if (c->shm_context.in_use) {
+        nread = sharedMemoryRead(c,buf,sizeof(buf));
+    } else {
+        nread = read(c->fd,buf,sizeof(buf));
+    }
+    if (nread > 0) {
+        total += nread;
+    } else {
+        printf("nread: %d\n", nread);
+    }
+//    printf("blaa");
+//    printf("%s", buf);
+    if (nread < 0) {
+        if (c->shm_context.in_use) {
+            err = -nread;
+        } else {
+            err = errno;
+        }
+        if ((err == EAGAIN && !(c->flags & REDIS_BLOCK)) || (err == EINTR)) {
             /* Try again later */
         } else {
             __redisSetError(c,REDIS_ERR_IO,NULL);
@@ -830,15 +863,25 @@ int redisBufferRead(redisContext *c) {
  */
 int redisBufferWrite(redisContext *c, int *done) {
     int nwritten;
+    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
         return REDIS_ERR;
-
+    
     if (sdslen(c->obuf) > 0) {
-        nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
-        if (nwritten == -1) {
-            if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
+        if (c->shm_context.in_use) {
+            nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
+        } else {
+            nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
+        }
+        if (nwritten < 0) {
+            if (c->shm_context.in_use) {
+                err = -nwritten;
+            } else {
+                err = errno;
+            }
+            if ((err == EAGAIN && !(c->flags & REDIS_BLOCK)) || (err == EINTR)) {
                 /* Try again later */
             } else {
                 __redisSetError(c,REDIS_ERR_IO,NULL);
