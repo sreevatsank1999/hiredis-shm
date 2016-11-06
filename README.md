@@ -1,3 +1,9 @@
+# Shared memory client for redis-module-shm
+
+This Hiredis fork implements the client side for [redis-module-shm](https://github.com/edgarsi/redis-module-shm). It is currently in early development, and shouldn't be considered for use by anyone.
+
+---
+
 [![Build Status](https://travis-ci.org/redis/hiredis.png)](https://travis-ci.org/redis/hiredis)
 
 **This Readme reflects the latest changed in the master branch. See [v0.13.3](https://github.com/redis/hiredis/tree/v0.13.3) for the Readme and documentation for the latest release.**
