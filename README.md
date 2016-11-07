@@ -484,3 +484,5 @@ You need a redis-cli which uses the hiredis with shared memory. You can find it 
 
 (Note that redis-benchmark won't use shared memory. It implements its own low level communication with redis server, bypassing the hiredis code with shared memory support. But redis-cli doesn't do magic, so can be used for testing latency.)
 
+# lockless-char-fifo
+Lockless char FIFO buffer.
