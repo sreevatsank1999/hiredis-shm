@@ -3,7 +3,7 @@
 # Copyright (C) 2010-2011 Pieter Noordhuis <pcnoordhuis at gmail dot com>
 # This file is released under the BSD license, see the COPYING file
 
-OBJ=alloc.o net.o hiredis.o sds.o shm.o async.o read.o sockcompat.o
+OBJ=alloc.o net.o hiredis.o sds.o shm.o charfifo.o async.o read.o sockcompat.o
 EXAMPLES=hiredis-example hiredis-example-libevent hiredis-example-libev hiredis-example-glib hiredis-example-push
 TESTS=hiredis-test
 LIBNAME=libhiredis
@@ -154,6 +154,7 @@ read.o: read.c fmacros.h alloc.h read.h sds.h win32.h
 sds.o: sds.c sds.h sdsalloc.h alloc.h
 shm.o: shm.c shm.h
 sockcompat.o: sockcompat.c sockcompat.h
+charfifo.o: lockless-char-fifo/charfifo.c lockless-char-fifo/charfifo.h
 test.o: test.c fmacros.h hiredis.h read.h sds.h alloc.h net.h sockcompat.h win32.h
 
 $(DYLIBNAME): $(OBJ)
@@ -260,6 +261,9 @@ check: hiredis-test
 
 shm.o:
 	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) -D_XOPEN_SOURCE=500 $<
+
+charfifo.o:
+	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
 
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(SSL_DYLIBNAME) $(SSL_STLIBNAME) $(TESTS) $(PKGCONFNAME) examples/hiredis-example* *.o *.gcda *.gcno *.gcov
