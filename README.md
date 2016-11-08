@@ -495,3 +495,4 @@ Requirements:
 * x86 or x86-64
 * Fixed memory sizes for buffers.
 * Not interrupt safe! <-? depends on the atomics used... C11 stdatomics looks interrupt safe...
+ 
