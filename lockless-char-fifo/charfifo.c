@@ -82,18 +82,10 @@ static inline void MemcpyInDirection(char* fifo, char* buf, size_t bytes, transf
 }
 
 static inline void Transfer(volatile char *v_fifo_buf, char *buf, size_t bytes, 
-<<<<<<< HEAD
-        size_t *p_start_idx, size_t end_idx, size_t size, transfer_direction_t direction)
-{
-    X("%lld Transfer(start_idx=%d end_idx=%d bytes=%d direction=%d\n", ustime(), *p_start_idx, end_idx, bytes, direction);
-    size_t start_idx = *p_start_idx;
-    __sync_synchronize();
-=======
         volatile size_t *p_start_idx, size_t end_idx, size_t size, transfer_direction_t direction)
 {
     X("%lld Transfer(start_idx=%d end_idx=%d bytes=%d direction=%d\n", ustime(), *p_start_idx, end_idx, bytes, direction);
     size_t start_idx = atomic_load_explicit(p_start_idx, memory_order_acquire);
->>>>>>> 9fc0fb8175dd75520acd662fe1646c6ffd459e4e
     char* fifo_buf = (char*)v_fifo_buf; /* casting away volatile because buf can't change in the range being used. */
     if (start_idx >= end_idx) {
         size_t bytes_to_eob = size - start_idx;
@@ -107,12 +99,7 @@ static inline void Transfer(volatile char *v_fifo_buf, char *buf, size_t bytes,
     }
     MemcpyInDirection(fifo_buf + start_idx, buf, bytes, direction);
     start_idx += bytes;
-<<<<<<< HEAD
-    __sync_synchronize();
-    *p_start_idx = start_idx;
-=======
     atomic_store_explicit(p_start_idx, start_idx, memory_order_release);
->>>>>>> 9fc0fb8175dd75520acd662fe1646c6ffd459e4e
     /* Need to push out of L1 cache, for other CPUs to see the update now,
      * but the CPU seems to do a good enough job of that. There is no way to
      * push out to L2, only purge of all cache hierarchy, which is slow. 
@@ -126,28 +113,20 @@ static inline void Transfer(volatile char *v_fifo_buf, char *buf, size_t bytes,
 void CharFifo_Write(volatile void *charfifo, char *buf, size_t btw) {
     EXTRACT_HEADER(charfifo);
     EXTRACT_FIFO_BUF(charfifo);
-<<<<<<< HEAD
-    Transfer(fifo_buf, buf, btw, &header->write_idx, header->read_idx, header->size, BUF_TO_FIFO);
-=======
     Transfer(fifo_buf, buf, btw, 
             &header->write_idx, 
             aget(&header->read_idx), 
             header->size, 
             BUF_TO_FIFO);
->>>>>>> 9fc0fb8175dd75520acd662fe1646c6ffd459e4e
 }
 
 void CharFifo_Read(volatile void *charfifo, char *buf, size_t btr) {
     EXTRACT_HEADER(charfifo);
     EXTRACT_FIFO_BUF(charfifo);
-<<<<<<< HEAD
-    Transfer(fifo_buf, buf, btr, &header->read_idx, header->write_idx, header->size, FIFO_TO_BUF);
-=======
     Transfer(fifo_buf, buf, btr, 
             &header->read_idx, 
             aget(&header->write_idx), 
             header->size, 
             FIFO_TO_BUF);
->>>>>>> 9fc0fb8175dd75520acd662fe1646c6ffd459e4e
 }
 
