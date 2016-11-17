@@ -72,7 +72,6 @@ void sharedMemoryContextInit(redisContext *c) {
         return;
     }
     
-    c->shm_context->fd = -1;
     c->shm_context->mem = MAP_FAILED;
 //    return;
     /* Use standard UUID to distinguish among clients. */ //TODO 
@@ -84,24 +83,26 @@ void sharedMemoryContextInit(redisContext *c) {
     /* Does the server see them? */ //TODO
     /* Get that shared memory up and running! */
     shm_unlink(c->shm_context->name);
-    c->shm_context->fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
-    if (c->shm_context->fd < 0) {
+    int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
+    if (fd < 0) {
         /*TODO: Communicate the error to user. */
         sharedMemoryContextFree(c);
         return;
     }
-    if (ftruncate(c->shm_context->fd,sizeof(sharedMemory)) != 0) {
+    if (ftruncate(fd,sizeof(sharedMemory)) != 0) {
         /*TODO: Communicate the error to user. */
         sharedMemoryContextFree(c);
         return;
     }
     c->shm_context->mem = mmap(NULL,sizeof(sharedMemory),
-                            (PROT_READ|PROT_WRITE),MAP_SHARED,c->shm_context->fd,0);
+                            (PROT_READ|PROT_WRITE),MAP_SHARED,fd,0);
     if (c->shm_context->mem == MAP_FAILED) {
         /*TODO: Communicate the error to user. */
         sharedMemoryContextFree(c);
         return;
     }
+    close(fd);
+    
     sharedMemoryBufferInit(&c->shm_context->mem->to_server);
     sharedMemoryBufferInit(&c->shm_context->mem->to_client);
 }
@@ -114,10 +115,7 @@ void sharedMemoryContextFree(redisContext *c) {
     if (c->shm_context->mem != MAP_FAILED) {
         munmap(c->shm_context->mem,sizeof(sharedMemory)); /*TODO: What if failed?*/
     }
-    if (c->shm_context->fd != -1) {
-        close(c->shm_context->fd); /*TODO: What if failed?*/
-        shm_unlink(c->shm_context->name); /*TODO: What if failed?*/
-    }
+    shm_unlink(c->shm_context->name); /*TODO: What if failed?*/
     
     free(c->shm_context);
     c->shm_context = NULL;
@@ -153,6 +151,7 @@ void sharedMemoryAfterConnect(redisContext *c) {
         sharedMemoryContextFree(c);
     }
     freeReplyObject(reply);
+    /*TODO: Unlink the shared memory file now. This limits the possibility to leak an shm file on crash. */
 }
 
 /* Return the UNIX time in microseconds */

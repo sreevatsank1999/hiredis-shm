@@ -47,7 +47,6 @@ struct redisContext;
 
 typedef struct redisSharedMemoryContext {
     char name[38]; /* Each connection has a different one of these. */
-    int fd; /*TODO: I don't really need to keep this thing. Just close and unlink after mmap. This also limits the possibility to leak an shm file. */
     struct sharedMemory *mem;
 } redisSharedMemoryContext;
 
