@@ -92,9 +92,7 @@ void sharedMemoryContextInit(redisContext *c) {
     }
     c->shm_context->name[0] = '/';
     c->shm_context->name[sizeof(c->shm_context->name)-1] = '\0';
-//    
-    /* Create the semaphores. */
-    /* Does the server see them? */ //TODO
+    
     /* Get that shared memory up and running! */
     shm_unlink(c->shm_context->name);
     int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
@@ -146,7 +144,7 @@ void sharedMemoryAfterConnect(redisContext *c) {
         return;
     }
     /* Temporarily disabling the shm context, so the command does not attempt to
-     * be sent through the socket. */
+     * be sent through the shared memory. */
     redisSharedMemoryContext *tmp = c->shm_context;
     c->shm_context = NULL;
     int version = 1;
