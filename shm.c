@@ -165,7 +165,8 @@ void sharedMemoryAfterConnect(redisContext *c) {
         sharedMemoryContextFree(c);
     }
     freeReplyObject(reply);
-    /* Unlink the shared memory file now. This limits the possibility to leak an shm file on crash. */
+    /* Unlink the shared memory file now. This limits the possibility to leak 
+     * an shm file on crash. */
     shm_unlink(c->shm_context->name);
 }
 
