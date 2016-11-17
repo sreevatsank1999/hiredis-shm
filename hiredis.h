@@ -43,9 +43,6 @@ typedef long long ssize_t;
 #endif
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
-#include "shm.h" /* for sharedMemoryContext */ /*TODO: I don't like including this here...*/
-
-/*TODO: Read the files line by line to see if something is not missed.*/
 
 #define HIREDIS_MAJOR 1
 #define HIREDIS_MINOR 0
@@ -242,6 +239,7 @@ typedef struct redisContextFuncs {
     ssize_t (*read)(struct redisContext *, char *, size_t);
     ssize_t (*write)(struct redisContext *);
 } redisContextFuncs;
+struct redisSharedMemoryContext;
 
 /* Context for a connection to Redis */
 typedef struct redisContext {
@@ -284,6 +282,7 @@ typedef struct redisContext {
     /* An optional RESP3 PUSH handler */
     redisPushFn *push_cb;
     sharedMemoryContext shm_context;
+    struct redisSharedMemoryContext *shm_context;
 
 } redisContext;
 

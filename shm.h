@@ -45,23 +45,15 @@
 /*TODO: I don't like exporting these symbols to user. Store context in heap? */
 struct redisContext;
 
-typedef struct sharedMemoryContext {
-    int in_use;
+typedef struct redisSharedMemoryContext {
     char name[38]; /* Each connection has a different one of these. */
     int fd; /*TODO: I don't really need to keep this thing. Just close and unlink after mmap. This also limits the possibility to leak an shm file. */
     struct sharedMemory *mem;
-    
-    /* Synchronization done through semaphores for now, while testing the principle. */
-    /*TODO: Lock-free FIFO would make the world a better place !!! 
-     * (C++ atomics seems to be the easiest way, but will the shared memory play nice?...) */
-//    sem_t *server_read_pending;
-//    sem_t *client_read_pending;
-    
-} sharedMemoryContext;
+} redisSharedMemoryContext;
 
 
-void sharedMemoryContextInit(sharedMemoryContext *shm_context);
-void sharedMemoryContextFree(sharedMemoryContext *shm_context);
+void sharedMemoryContextInit(struct redisContext *c);
+void sharedMemoryContextFree(struct redisContext *c);
 void sharedMemoryAfterConnect(struct redisContext *c);
 /* Note: Setting errno isn't portable. Instead of setting some error X to errno,
  * the result is -X, whenever write or read fails. */

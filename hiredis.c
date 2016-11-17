@@ -41,6 +41,7 @@
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
+#include "shm.h"
 #include "async.h"
 #include "win32.h"
 
@@ -712,7 +713,9 @@ static redisContext *redisContextInit(void) {
         redisFree(c);
         return NULL;
     }
-    sharedMemoryContextInit(&c->shm_context);
+
+    c->shm_context = NULL;
+    sharedMemoryContextInit(c);
 
     return c;
 }
@@ -750,7 +753,10 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
-/* TODO: Here and in a gazillion other places, shared memory context needs to be poked. */
+static void redisAfterConnect(redisContext* c) {
+    sharedMemoryAfterConnect(c);
+}
+
 int redisReconnect(redisContext *c) {
     c->err = 0;
     memset(c->errstr, '\0', strlen(c->errstr));
@@ -960,7 +966,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    if (c->shm_context.in_use) 
+    if (c->shm_context != NULL) 
         nread = sharedMemoryRead(c,buf,sizeof(buf));
         // total += nread;
     else 
@@ -993,7 +999,7 @@ int redisBufferWrite(redisContext *c, int *done) {
     
     if (sdslen(c->obuf) > 0) {
         ssize_t nwritten;
-        if (c->shm_context.in_use)
+        if (c->shm_context != NULL)
             nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
         else 
             nwritten = c->funcs->write(c);
