@@ -42,7 +42,6 @@
 /*TODO: Configuration procedure to enable this, disabled by default.
  * And a function to check if the shared memory is actually used. */
 
-/*TODO: I don't like exporting these symbols to user. Store context in heap? */
 struct redisContext;
 
 typedef struct redisSharedMemoryContext {
