@@ -170,7 +170,7 @@ int sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
     X("%lld write \n", ustime());
     int err;
     int btw_chunk;
-    int bw = 0;
+    size_t bw = 0;
     do {
         sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
         size_t free = CharFifo_FreeSpace(target);
