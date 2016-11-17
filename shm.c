@@ -74,12 +74,25 @@ void sharedMemoryContextInit(redisContext *c) {
     }
     
     c->shm_context->mem = MAP_FAILED;
-//    return;
-    /* Use standard UUID to distinguish among clients. */ //TODO 
-    memset(c->shm_context->name, 'a', sizeof(c->shm_context->name));
+    c->shm_context->name[0] = '\0';
+    /* Use standard UUID to distinguish among clients. */
+    FILE *fp = fopen("/proc/sys/kernel/random/uuid", "r");
+    if (fp == NULL) {
+        /*TODO: Communicate the error to user. */
+        sharedMemoryContextFree(c);
+        return;
+    }
+    size_t btr = sizeof(c->shm_context->name)-2;
+    size_t br = fread(c->shm_context->name+1, 1, btr, fp);
+    fclose(fp);
+    if (br != btr) {
+        /*TODO: Communicate the error to user. */
+        sharedMemoryContextFree(c);
+        return;
+    }
     c->shm_context->name[0] = '/';
     c->shm_context->name[sizeof(c->shm_context->name)-1] = '\0';
-//    /proc/sys/kernel/random/uuid
+//    
     /* Create the semaphores. */
     /* Does the server see them? */ //TODO
     /* Get that shared memory up and running! */
@@ -116,7 +129,9 @@ void sharedMemoryContextFree(redisContext *c) {
     if (c->shm_context->mem != MAP_FAILED) {
         munmap(c->shm_context->mem,sizeof(sharedMemory)); /*TODO: What if failed?*/
     }
-    shm_unlink(c->shm_context->name); /*TODO: What if failed?*/
+    if (c->shm_context->name[0] != '\0') {
+        shm_unlink(c->shm_context->name);
+    }
     
     free(c->shm_context);
     c->shm_context = NULL;
@@ -152,7 +167,8 @@ void sharedMemoryAfterConnect(redisContext *c) {
         sharedMemoryContextFree(c);
     }
     freeReplyObject(reply);
-    /*TODO: Unlink the shared memory file now. This limits the possibility to leak an shm file on crash. */
+    /* Unlink the shared memory file now. This limits the possibility to leak an shm file on crash. */
+    shm_unlink(c->shm_context->name);
 }
 
 /* Return the UNIX time in microseconds */
