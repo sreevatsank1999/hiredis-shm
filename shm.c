@@ -125,7 +125,7 @@ void sharedMemoryContextFree(redisContext *c) {
     }
     
     if (c->shm_context->mem != MAP_FAILED) {
-        munmap(c->shm_context->mem,sizeof(sharedMemory)); /*TODO: What if failed?*/
+        munmap(c->shm_context->mem,sizeof(sharedMemory));
     }
     if (c->shm_context->name[0] != '\0') {
         shm_unlink(c->shm_context->name);
