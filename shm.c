@@ -65,67 +65,80 @@ static void sharedMemoryBufferInit(sharedMemoryBuffer *b) {
 
 /*TODO: hiredis conforms to the ancient rules of declaring c variables 
  * at the beginning of functions! */
-void sharedMemoryContextInit(sharedMemoryContext *shm_context) {
-    shm_context->in_use = 0;
-    shm_context->fd = -1;
-    shm_context->mem = MAP_FAILED;
+void sharedMemoryContextInit(redisContext *c) {
+    
+    c->shm_context = malloc(sizeof(redisSharedMemoryContext));
+    if (c->shm_context == NULL) {
+        return;
+    }
+    
+    c->shm_context->fd = -1;
+    c->shm_context->mem = MAP_FAILED;
 //    return;
     /* Use standard UUID to distinguish among clients. */ //TODO 
-    memset(shm_context->name, 'a', sizeof(shm_context->name));
-    shm_context->name[0] = '/';
-    shm_context->name[sizeof(shm_context->name)-1] = '\0';
+    memset(c->shm_context->name, 'a', sizeof(c->shm_context->name));
+    c->shm_context->name[0] = '/';
+    c->shm_context->name[sizeof(c->shm_context->name)-1] = '\0';
 //    /proc/sys/kernel/random/uuid
     /* Create the semaphores. */
     /* Does the server see them? */ //TODO
     /* Get that shared memory up and running! */
-    shm_unlink(shm_context->name);
-    shm_context->fd = shm_open(shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
-    if (shm_context->fd < 0) {
+    shm_unlink(c->shm_context->name);
+    c->shm_context->fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
+    if (c->shm_context->fd < 0) {
         /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(shm_context);
+        sharedMemoryContextFree(c);
         return;
     }
-    if (ftruncate(shm_context->fd,sizeof(sharedMemory)) != 0) {
+    if (ftruncate(c->shm_context->fd,sizeof(sharedMemory)) != 0) {
         /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(shm_context);
+        sharedMemoryContextFree(c);
         return;
     }
-    shm_context->mem = mmap(NULL,sizeof(sharedMemory),
-                            (PROT_READ|PROT_WRITE),MAP_SHARED,shm_context->fd,0);
-    if (shm_context->mem == MAP_FAILED) {
+    c->shm_context->mem = mmap(NULL,sizeof(sharedMemory),
+                            (PROT_READ|PROT_WRITE),MAP_SHARED,c->shm_context->fd,0);
+    if (c->shm_context->mem == MAP_FAILED) {
         /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(shm_context);
+        sharedMemoryContextFree(c);
         return;
     }
-    sharedMemoryBufferInit(&shm_context->mem->to_server);
-    sharedMemoryBufferInit(&shm_context->mem->to_client);
-    shm_context->in_use = 1;
+    sharedMemoryBufferInit(&c->shm_context->mem->to_server);
+    sharedMemoryBufferInit(&c->shm_context->mem->to_client);
 }
 
-void sharedMemoryContextFree(sharedMemoryContext *shm_context) {
-    if (shm_context->mem != MAP_FAILED) {
-        munmap(shm_context->mem,sizeof(sharedMemory)); /*TODO: What if failed?*/
+void sharedMemoryContextFree(redisContext *c) {
+    if (c->shm_context == NULL) {
+        return;
     }
-    if (shm_context->fd != -1) {
-        close(shm_context->fd); /*TODO: What if failed?*/
-        shm_unlink(shm_context->name); /*TODO: What if failed?*/
+    
+    if (c->shm_context->mem != MAP_FAILED) {
+        munmap(c->shm_context->mem,sizeof(sharedMemory)); /*TODO: What if failed?*/
     }
-    shm_context->in_use = 0;
+    if (c->shm_context->fd != -1) {
+        close(c->shm_context->fd); /*TODO: What if failed?*/
+        shm_unlink(c->shm_context->name); /*TODO: What if failed?*/
+    }
+    
+    free(c->shm_context);
+    c->shm_context = NULL;
 }
 
 void sharedMemoryAfterConnect(redisContext *c) {
-    if (!c->shm_context.in_use) {
+    if (c->shm_context == NULL) {
         return;
     }
     if (c->err) {
-        sharedMemoryContextFree(&c->shm_context);
+        sharedMemoryContextFree(c);
         return;
     }
+    /* Temporarily disabling the shm context, so the command does not attempt to
+     * be sent through the socket. */
+    redisSharedMemoryContext *tmp = c->shm_context;
+    c->shm_context = NULL;
     int version = 1;
-    c->shm_context.in_use = 0;
     /*TODO: Allow the user to communicate through user's channels, not require TCP or socket. */
-    redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,c->shm_context.name);
-    c->shm_context.in_use = 1;
+    redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
+    c->shm_context = tmp;
     if (reply->type == REDIS_REPLY_INTEGER) {
         if (reply->integer == 1) {
             /* We got ourselves a shared memory! */
@@ -133,11 +146,11 @@ void sharedMemoryAfterConnect(redisContext *c) {
             /* Module loaded but some error happened. This may be unsupported
              * version, lack of systemwide file descriptors, etc. */
             /*TODO: Communicate the error to user. */
-            sharedMemoryContextFree(&c->shm_context);
+            sharedMemoryContextFree(c);
         }
     } else {
         /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(&c->shm_context);
+        sharedMemoryContextFree(c);
     }
     freeReplyObject(reply);
 }
@@ -159,7 +172,7 @@ int sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
     int btw_chunk;
     int bw = 0;
     do {
-        sharedMemoryBuffer *target = &c->shm_context.mem->to_server;
+        sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
         size_t free = CharFifo_FreeSpace(target);
         err = EAGAIN;
         if (free > 0) {
@@ -188,7 +201,7 @@ ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
     X("%lld read start \n", ustime());
     int err;
     do {
-        sharedMemoryBuffer *source = &c->shm_context.mem->to_client;
+        sharedMemoryBuffer *source = &c->shm_context->mem->to_client;
         size_t used = CharFifo_UsedSpace(source);
 //        printf("flags: %d btr: %d used: %d\n", c->flags, btr, used);
         err = EAGAIN;

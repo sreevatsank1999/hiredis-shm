@@ -38,9 +38,6 @@
 #include <sys/time.h> /* for struct timeval */
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
-#include "shm.h" /* for sharedMemoryContext */ /*TODO: I don't like including this here...*/
-
-/*TODO: Read the files line by line to see if something is not missed.*/
 
 #define HIREDIS_MAJOR 0
 #define HIREDIS_MINOR 13
@@ -139,6 +136,8 @@ enum redisConnectionType {
     REDIS_CONN_UNIX,
 };
 
+struct redisSharedMemoryContext;
+
 /* Context for a connection to Redis */
 typedef struct redisContext {
     int err; /* Error flags, 0 when there is no error */
@@ -161,7 +160,7 @@ typedef struct redisContext {
         char *path;
     } unix_sock;
 
-    sharedMemoryContext shm_context;
+    struct redisSharedMemoryContext *shm_context;
 
 } redisContext;
 

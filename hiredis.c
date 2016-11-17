@@ -42,6 +42,7 @@
 #include "hiredis.h"
 #include "net.h"
 #include "sds.h"
+#include "shm.h"
 
 static redisReply *createReplyObject(int type);
 static void *createStringObject(const redisReadTask *task, char *str, size_t len);
@@ -609,7 +610,9 @@ static redisContext *redisContextInit(void) {
         redisFree(c);
         return NULL;
     }
-    sharedMemoryContextInit(&c->shm_context);
+
+    c->shm_context = NULL;
+    sharedMemoryContextInit(c);
 
     return c;
 }
@@ -631,7 +634,7 @@ void redisFree(redisContext *c) {
         free(c->unix_sock.path);
     if (c->timeout)
         free(c->timeout);
-    sharedMemoryContextFree(&c->shm_context);
+    sharedMemoryContextFree(c);
     free(c);
 }
 
@@ -642,7 +645,10 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
-/* TODO: Here and in a gazillion other places, shared memory context needs to be poked. */
+static void redisAfterConnect(redisContext* c) {
+    sharedMemoryAfterConnect(c);
+}
+
 int redisReconnect(redisContext *c) {
     c->err = 0;
     memset(c->errstr, '\0', strlen(c->errstr));
@@ -657,11 +663,18 @@ int redisReconnect(redisContext *c) {
     c->obuf = sdsempty();
     c->reader = redisReaderCreate();
 
+    sharedMemoryContextFree(c);
+    sharedMemoryContextInit(c);
+
     if (c->connection_type == REDIS_CONN_TCP) {
-        return redisContextConnectBindTcp(c, c->tcp.host, c->tcp.port,
+        int res = redisContextConnectBindTcp(c, c->tcp.host, c->tcp.port,
                 c->timeout, c->tcp.source_addr);
+        redisAfterConnect(c);
+        return res;
     } else if (c->connection_type == REDIS_CONN_UNIX) {
-        return redisContextConnectUnix(c, c->unix_sock.path, c->timeout);
+        int res = redisContextConnectUnix(c, c->unix_sock.path, c->timeout);
+        redisAfterConnect(c);
+        return res;
     } else {
         /* Something bad happened here and shouldn't have. There isn't
            enough information in the context to reconnect. */
@@ -669,10 +682,6 @@ int redisReconnect(redisContext *c) {
     }
 
     return REDIS_ERR;
-}
-
-static void redisAfterConnect(redisContext* c) {
-    sharedMemoryAfterConnect(c);
 }
 
 /* Connect to a Redis instance. On error the field error in the returned
@@ -816,7 +825,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    if (c->shm_context.in_use) {
+    if (c->shm_context != NULL) {
         nread = sharedMemoryRead(c,buf,sizeof(buf));
     } else {
         nread = read(c->fd,buf,sizeof(buf));
@@ -829,7 +838,7 @@ int redisBufferRead(redisContext *c) {
 //    printf("blaa");
 //    printf("%s", buf);
     if (nread < 0) {
-        if (c->shm_context.in_use) {
+        if (c->shm_context != NULL) {
             err = -nread;
         } else {
             err = errno;
@@ -870,13 +879,13 @@ int redisBufferWrite(redisContext *c, int *done) {
         return REDIS_ERR;
     
     if (sdslen(c->obuf) > 0) {
-        if (c->shm_context.in_use) {
+        if (c->shm_context != NULL) {
             nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
         } else {
             nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
         }
         if (nwritten < 0) {
-            if (c->shm_context.in_use) {
+            if (c->shm_context != NULL) {
                 err = -nwritten;
             } else {
                 err = errno;
