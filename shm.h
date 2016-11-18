@@ -38,24 +38,13 @@
 #include <unistd.h> /* ssize_t, etc */
 #include <semaphore.h> /* sem_t */
 
-
-/*TODO: Configuration procedure to enable this, disabled by default.
- * And a function to check if the shared memory is actually used. */
-
-/*TODO: A warning somewhere that, unlike socket writes/reads, the
- * shared memory communication can't be aborted by issuing a signal. */
-
 struct redisContext;
+struct redisReply;
 
-typedef struct redisSharedMemoryContext {
-    char name[38]; /* Each connection has a different one of these. */
-    struct sharedMemory *mem;
-} redisSharedMemoryContext;
-
-
-void sharedMemoryContextInit(struct redisContext *c);
-void sharedMemoryContextFree(struct redisContext *c);
-void sharedMemoryAfterConnect(struct redisContext *c);
+struct redisReply *sharedMemoryInit(struct redisContext *c);
+void sharedMemoryInitAfterReply(struct redisContext *c, struct redisReply *reply);
+void sharedMemoryFree(struct redisContext *c);
+//void sharedMemoryAfterConnect(struct redisContext *c);
 /* Note: Setting errno isn't portable. Instead of setting some error X to errno,
  * the result is -X, whenever write or read fails. */
 int sharedMemoryWrite(struct redisContext *c, char *buf, size_t btw);

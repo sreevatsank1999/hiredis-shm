@@ -43,10 +43,11 @@
 
 #include "lockless-char-fifo/charfifo.h"
 
+void __redisSetError(redisContext *c, int type, const char *str);
+
 
 #define X(...)
 //#define X printf
-
 
 
 /* redisBufferRead thinks 16k is best for a temporary buffer reading replies.
@@ -60,17 +61,24 @@ typedef volatile struct sharedMemory {
     sharedMemoryBuffer to_client;
 } sharedMemory;
 
+typedef struct redisSharedMemoryContext {
+    char name[38]; /* Shared memory file name. */
+    struct sharedMemory *mem;
+} redisSharedMemoryContext;
+
+
 static void sharedMemoryBufferInit(sharedMemoryBuffer *b) {
     CharFifo_Init(b, SHARED_MEMORY_BUF_SIZE);
 }
 
 /*TODO: hiredis conforms to the ancient rules of declaring c variables 
  * at the beginning of functions! */
-void sharedMemoryContextInit(redisContext *c) {
+static int sharedMemoryContextInit(redisContext *c) {
     
     c->shm_context = malloc(sizeof(redisSharedMemoryContext));
     if (c->shm_context == NULL) {
-        return;
+        __redisSetError(c,REDIS_ERR_OOM,"Out of memory");
+        return 0;
     }
     
     c->shm_context->mem = MAP_FAILED;
@@ -78,17 +86,19 @@ void sharedMemoryContextInit(redisContext *c) {
     /* Use standard UUID to distinguish among clients. */
     FILE *fp = fopen("/proc/sys/kernel/random/uuid", "r");
     if (fp == NULL) {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-        return;
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                "Can't read /proc/sys/kernel/random/uuid");
+        return 0;
     }
     size_t btr = sizeof(c->shm_context->name)-2;
     size_t br = fread(c->shm_context->name+1, 1, btr, fp);
     fclose(fp);
     if (br != btr) {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-        return;
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                "Incomplete read of /proc/sys/kernel/random/uuid");
+        return 0;
     }
     c->shm_context->name[0] = '/';
     c->shm_context->name[sizeof(c->shm_context->name)-1] = '\0';
@@ -97,29 +107,84 @@ void sharedMemoryContextInit(redisContext *c) {
     shm_unlink(c->shm_context->name);
     int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
     if (fd < 0) {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-        return;
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                        "Can't create shared memory file");
+        return 0;
     }
     if (ftruncate(fd,sizeof(sharedMemory)) != 0) {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-        return;
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OOM,"Out of shared memory");
+        return 0;
     }
     c->shm_context->mem = mmap(NULL,sizeof(sharedMemory),
                             (PROT_READ|PROT_WRITE),MAP_SHARED,fd,0);
     if (c->shm_context->mem == MAP_FAILED) {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-        return;
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                        "Can't mmap the shared memory file");
+        return 0;
     }
     close(fd);
     
     sharedMemoryBufferInit(&c->shm_context->mem->to_server);
     sharedMemoryBufferInit(&c->shm_context->mem->to_client);
+    
+    return 1;
 }
 
-void sharedMemoryContextFree(redisContext *c) {
+static void sharedMemoryProcessShmOpenReply(redisContext *c, redisReply *reply)
+{
+    /* Unlink the shared memory file now. This limits the possibility to leak 
+     * an shm file on crash. */
+    shm_unlink(c->shm_context->name);
+    c->shm_context->name[0] = '\0';
+
+    if (reply != NULL && reply->type == REDIS_REPLY_INTEGER && reply->integer == 1) {
+        /* We got ourselves a shared memory! */
+    } else {
+        sharedMemoryFree(c);
+    }
+}
+
+static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
+    
+    int version = 1;
+    
+    /* Temporarily disabling the shm context, so the command does not attempt to
+     * be sent through the shared memory. */
+    redisSharedMemoryContext *tmp = c->shm_context;
+    c->shm_context = NULL;
+    /*TODO: Allow the user to communicate through user's channels, not require TCP or socket. */
+    redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
+    c->shm_context = tmp;
+
+    if (c->flags & REDIS_BLOCK) {
+        sharedMemoryProcessShmOpenReply(c, reply);
+    }
+
+    return reply;
+}
+
+redisReply *sharedMemoryInit(redisContext *c) {
+    int ok = sharedMemoryContextInit(c);
+    if (!ok) {
+        return NULL;
+    }
+    return sharedMemoryEstablishCommunication(c);
+}
+
+void sharedMemoryInitAfterReply(struct redisContext *c, redisReply *reply)
+{
+    if (!(c->flags & REDIS_BLOCK) && c->shm_context != NULL
+            && c->shm_context->name[0] != '\0') {
+        /* A non-blocking context has received the acknowledgement
+         * that the shared memory communication was successful or failed. */
+        sharedMemoryProcessShmOpenReply(c, reply);
+    }
+}
+
+void sharedMemoryFree(redisContext *c) {
     if (c->shm_context == NULL) {
         return;
     }
@@ -133,49 +198,6 @@ void sharedMemoryContextFree(redisContext *c) {
     
     free(c->shm_context);
     c->shm_context = NULL;
-}
-
-void sharedMemoryAfterConnect(redisContext *c) {
-    if (c->shm_context == NULL) {
-        return;
-    }
-    if (c->err) {
-        sharedMemoryContextFree(c);
-        return;
-    }
-    /* Temporarily disabling the shm context, so the command does not attempt to
-     * be sent through the shared memory. */
-    redisSharedMemoryContext *tmp = c->shm_context;
-    c->shm_context = NULL;
-    int version = 1;
-    /*TODO: Allow the user to communicate through user's channels, not require TCP or socket. */
-    redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
-    if (!(c->flags & REDIS_BLOCK)) {
-        while (reply == NULL) {
-            int done;
-            redisBufferWrite(c, &done);
-            redisBufferRead(c);
-            redisGetReply(c,(void**)&reply);
-        }
-    }
-    c->shm_context = tmp;
-    if (reply->type == REDIS_REPLY_INTEGER) {
-        if (reply->integer == 1) {
-            /* We got ourselves a shared memory! */
-        } else {
-            /* Module loaded but some error happened. This may be unsupported
-             * version, lack of systemwide file descriptors, etc. */
-            /*TODO: Communicate the error to user. */
-            sharedMemoryContextFree(c);
-        }
-    } else {
-        /*TODO: Communicate the error to user. */
-        sharedMemoryContextFree(c);
-    }
-    freeReplyObject(reply);
-    /* Unlink the shared memory file now. This limits the possibility to leak 
-     * an shm file on crash. */
-    shm_unlink(c->shm_context->name);
 }
 
 /* Return the UNIX time in microseconds */

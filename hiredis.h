@@ -51,7 +51,7 @@ typedef long long ssize_t;
 
 /* Connection type can be blocking or non-blocking and is set in the
  * least significant bit of the flags field in redisContext. */
-#define REDIS_BLOCK 0x1 /*TODO: Use this and check out other flags.*/
+#define REDIS_BLOCK 0x1
 
 /* Connection may be disconnected before being free'd. The second bit
  * in the flags field is set when the context is connected. */
@@ -298,6 +298,21 @@ redisContext *redisConnectUnix(const char *path);
 redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv);
 redisContext *redisConnectUnixNonBlock(const char *path);
 redisContext *redisConnectFd(redisFD fd);
+
+/**
+ * Try to use shared memory for communicating with the server.
+ * 
+ * In a blocking context, a successful initialization returns a reply 
+ * containing the integer 1. If there was an error in performing
+ * the request, returns NULL and c->err and c->errstr describe the error.
+ * In a non-blocking context, always returns NULL, but the corresponding
+ * redisAppendCommand is called. The non-blocking context requires
+ * that, at the time of the call, no unprocessed commands exist.
+ * 
+ * Note that, unlike socket writes/reads, a blocking shared memory communication 
+ * can't be aborted by issuing a signal.
+ */
+redisReply *redisUseSharedMemory(redisContext *c);
 
 /**
  * Reconnect the given context using the saved information.

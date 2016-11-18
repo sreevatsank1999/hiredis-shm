@@ -715,7 +715,6 @@ static redisContext *redisContextInit(void) {
     }
 
     c->shm_context = NULL;
-    sharedMemoryContextInit(c);
 
     return c;
 }
@@ -753,8 +752,8 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
-static void redisAfterConnect(redisContext* c) {
-    sharedMemoryAfterConnect(c);
+redisReply *redisUseSharedMemory(redisContext *c) {
+    return sharedMemoryInit(c);
 }
 
 int redisReconnect(redisContext *c) {
@@ -774,6 +773,11 @@ int redisReconnect(redisContext *c) {
     c->obuf = sdsempty();
     c->reader = redisReaderCreate();
 
+    if (c->shm_context != NULL) {
+        sharedMemoryFree(c);
+        sharedMemoryInit(c);
+    }
+    
     if (c->obuf == NULL || c->reader == NULL) {
         __redisSetError(c, REDIS_ERR_OOM, "Out of memory");
         return REDIS_ERR;
@@ -1038,9 +1042,13 @@ static int redisHandledPushReply(redisContext *c, void *reply) {
 
 /* Get a reply from our reader or set an error in the context. */
 int redisGetReplyFromReader(redisContext *c, void **reply) {
-    if (redisReaderGetReply(c->reader, reply) == REDIS_ERR) {
+    if (redisReaderGetReply(c->reader,reply) == REDIS_ERR) {
+        sharedMemoryInitAfterReply(c, *reply);
         __redisSetError(c,c->reader->err,c->reader->errstr);
         return REDIS_ERR;
+    }
+    if (reply != NULL) {
+        sharedMemoryInitAfterReply(c, *reply);
     }
 
     return REDIS_OK;
