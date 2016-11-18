@@ -42,6 +42,9 @@
 /*TODO: Configuration procedure to enable this, disabled by default.
  * And a function to check if the shared memory is actually used. */
 
+/*TODO: A warning somewhere that, unlike socket writes/reads, the
+ * shared memory communication can't be aborted by issuing a signal. */
+
 struct redisContext;
 
 typedef struct redisSharedMemoryContext {
