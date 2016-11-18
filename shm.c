@@ -150,6 +150,14 @@ void sharedMemoryAfterConnect(redisContext *c) {
     int version = 1;
     /*TODO: Allow the user to communicate through user's channels, not require TCP or socket. */
     redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
+    if (!(c->flags & REDIS_BLOCK)) {
+        while (reply == NULL) {
+            int done;
+            redisBufferWrite(c, &done);
+            redisBufferRead(c);
+            redisGetReply(c,(void**)&reply);
+        }
+    }
     c->shm_context = tmp;
     if (reply->type == REDIS_REPLY_INTEGER) {
         if (reply->integer == 1) {
@@ -182,43 +190,36 @@ static long long ustime(void) {
 }
 
 int sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
-    X("%lld write \n", ustime());
-    int err;
     int btw_chunk;
     size_t bw = 0;
     do {
         sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
         size_t free = CharFifo_FreeSpace(target);
-        err = EAGAIN;
         if (free > 0) {
             if (btw - bw > free) {
                 btw_chunk = free;
-                /* Blocking is better for latency when part written, so EAGAIN. */
-                /* TODO: Shouldn't I allow for the caller process to abort by issuing a signal? */
             } else {
                 btw_chunk = btw - bw;
-                err = 0;
             }
             CharFifo_Write(target,buf+bw,btw_chunk);
             bw += btw_chunk;
         }
-        /*TODO: Don't hog up CPU when no free space and REDIS_BLOCK is on.*/ 
-    } while (bw < btw && err == EAGAIN && (c->flags & REDIS_BLOCK));
-    if (err == 0) {
-        return btw;
+        /* This hogs up CPU when no free space and REDIS_BLOCK is on, but 
+         * latency is best if done this way, and the server will likely
+         * free some space soon. */ 
+    } while (bw < btw && (c->flags & REDIS_BLOCK));
+    if (bw != 0 || btw == 0) {
+        return bw;
     } else {
-        return -err; /* see .h */
+        return -EAGAIN; /* see .h */
     }
 }
 
-/* TODO: Less duplication, maybe? */
 ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
-    X("%lld read start \n", ustime());
     int err;
     do {
         sharedMemoryBuffer *source = &c->shm_context->mem->to_client;
         size_t used = CharFifo_UsedSpace(source);
-//        printf("flags: %d btr: %d used: %d\n", c->flags, btr, used);
         err = EAGAIN;
         if (used > 0) {
             err = 0; /* btr is optimistic. I need to return with whatever I get. */
@@ -227,9 +228,10 @@ ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
             }
             CharFifo_Read(source,buf,btr);
         }
-        /*TODO: Don't hog up CPU when no free space and REDIS_BLOCK is on.*/ 
+        /* This hogs up CPU when no free space and REDIS_BLOCK is on, but 
+         * latency is best if done this way, and the server will likely
+         * send a reply soon. */ 
     } while (err == EAGAIN && (c->flags & REDIS_BLOCK));
-    X("%lld read end \n", ustime());
     if (err == 0) {
         return btr;
     } else {
