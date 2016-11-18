@@ -612,7 +612,6 @@ static redisContext *redisContextInit(void) {
     }
 
     c->shm_context = NULL;
-    sharedMemoryContextInit(c);
 
     return c;
 }
@@ -634,7 +633,7 @@ void redisFree(redisContext *c) {
         free(c->unix_sock.path);
     if (c->timeout)
         free(c->timeout);
-    sharedMemoryContextFree(c);
+    sharedMemoryFree(c);
     free(c);
 }
 
@@ -645,8 +644,8 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
-static void redisAfterConnect(redisContext* c) {
-    sharedMemoryAfterConnect(c);
+redisReply *redisUseSharedMemory(redisContext *c) {
+    return sharedMemoryInit(c);
 }
 
 int redisReconnect(redisContext *c) {
@@ -663,18 +662,16 @@ int redisReconnect(redisContext *c) {
     c->obuf = sdsempty();
     c->reader = redisReaderCreate();
 
-    sharedMemoryContextFree(c);
-    sharedMemoryContextInit(c);
+    if (c->shm_context != NULL) {
+        sharedMemoryFree(c);
+        sharedMemoryInit(c);
+    }
 
     if (c->connection_type == REDIS_CONN_TCP) {
-        int res = redisContextConnectBindTcp(c, c->tcp.host, c->tcp.port,
+        return redisContextConnectBindTcp(c, c->tcp.host, c->tcp.port,
                 c->timeout, c->tcp.source_addr);
-        redisAfterConnect(c);
-        return res;
     } else if (c->connection_type == REDIS_CONN_UNIX) {
-        int res = redisContextConnectUnix(c, c->unix_sock.path, c->timeout);
-        redisAfterConnect(c);
-        return res;
+        return redisContextConnectUnix(c, c->unix_sock.path, c->timeout);
     } else {
         /* Something bad happened here and shouldn't have. There isn't
            enough information in the context to reconnect. */
@@ -696,7 +693,6 @@ redisContext *redisConnect(const char *ip, int port) {
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,NULL);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -709,7 +705,6 @@ redisContext *redisConnectWithTimeout(const char *ip, int port, const struct tim
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,&tv);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -722,7 +717,6 @@ redisContext *redisConnectNonBlock(const char *ip, int port) {
 
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectTcp(c,ip,port,NULL);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -731,7 +725,6 @@ redisContext *redisConnectBindNonBlock(const char *ip, int port,
     redisContext *c = redisContextInit();
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -741,7 +734,6 @@ redisContext *redisConnectBindNonBlockWithReuse(const char *ip, int port,
     c->flags &= ~REDIS_BLOCK;
     c->flags |= REDIS_REUSEADDR;
     redisContextConnectBindTcp(c,ip,port,NULL,source_addr);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -754,7 +746,6 @@ redisContext *redisConnectUnix(const char *path) {
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectUnix(c,path,NULL);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -767,7 +758,6 @@ redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval
 
     c->flags |= REDIS_BLOCK;
     redisContextConnectUnix(c,path,&tv);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -780,7 +770,6 @@ redisContext *redisConnectUnixNonBlock(const char *path) {
 
     c->flags &= ~REDIS_BLOCK;
     redisContextConnectUnix(c,path,NULL);
-    redisAfterConnect(c);
     return c;
 }
 
@@ -913,8 +902,12 @@ int redisBufferWrite(redisContext *c, int *done) {
  * or set an error in the context otherwise. */
 int redisGetReplyFromReader(redisContext *c, void **reply) {
     if (redisReaderGetReply(c->reader,reply) == REDIS_ERR) {
+        sharedMemoryInitAfterReply(c, *reply);
         __redisSetError(c,c->reader->err,c->reader->errstr);
         return REDIS_ERR;
+    }
+    if (reply != NULL) {
+        sharedMemoryInitAfterReply(c, *reply);
     }
     return REDIS_OK;
 }
