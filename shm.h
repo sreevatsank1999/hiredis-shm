@@ -44,9 +44,7 @@ struct redisReply;
 struct redisReply *sharedMemoryInit(struct redisContext *c);
 void sharedMemoryInitAfterReply(struct redisContext *c, struct redisReply *reply);
 void sharedMemoryFree(struct redisContext *c);
-//void sharedMemoryAfterConnect(struct redisContext *c);
-/* Note: Setting errno isn't portable. Instead of setting some error X to errno,
- * the result is -X, whenever write or read fails. */
+/* These act as write()/read(), with the same rules and returns and errno. */
 ssize_t sharedMemoryWrite(struct redisContext *c, char *buf, size_t btw);
 ssize_t sharedMemoryRead(struct redisContext *c, char *buf, size_t btr);
 

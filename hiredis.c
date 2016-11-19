@@ -804,11 +804,9 @@ int redisEnableKeepAlive(redisContext *c) {
  *
  * After this function is called, you may use redisContextReadReply to
  * see if there is a reply available. */
-volatile int total = 0;
 int redisBufferRead(redisContext *c) {
     char buf[1024*16];
     int nread;
-    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
@@ -819,16 +817,8 @@ int redisBufferRead(redisContext *c) {
     } else {
         nread = read(c->fd,buf,sizeof(buf));
     }
-    if (nread > 0) {
-        total += nread;
-    }
-    if (nread < 0) {
-        if (c->shm_context != NULL) {
-            err = -nread;
-        } else {
-            err = errno;
-        }
-        if ((err == EAGAIN && !(c->flags & REDIS_BLOCK)) || (err == EINTR)) {
+    if (nread == -1) {
+        if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
             /* Try again later */
         } else {
             __redisSetError(c,REDIS_ERR_IO,NULL);
@@ -857,7 +847,6 @@ int redisBufferRead(redisContext *c) {
  */
 int redisBufferWrite(redisContext *c, int *done) {
     int nwritten;
-    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
@@ -869,13 +858,8 @@ int redisBufferWrite(redisContext *c, int *done) {
         } else {
             nwritten = write(c->fd,c->obuf,sdslen(c->obuf));
         }
-        if (nwritten < 0) {
-            if (c->shm_context != NULL) {
-                err = -nwritten;
-            } else {
-                err = errno;
-            }
-            if ((err == EAGAIN && !(c->flags & REDIS_BLOCK)) || (err == EINTR)) {
+        if (nwritten == -1) {
+            if ((errno == EAGAIN && !(c->flags & REDIS_BLOCK)) || (errno == EINTR)) {
                 /* Try again later */
             } else {
                 __redisSetError(c,REDIS_ERR_IO,NULL);
