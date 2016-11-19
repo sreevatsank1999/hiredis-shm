@@ -202,17 +202,6 @@ void sharedMemoryFree(redisContext *c) {
     c->shm_context = NULL;
 }
 
-/* Return the UNIX time in microseconds */
-static long long ustime(void) {
-    struct timeval tv;
-    long long ust;
-
-    gettimeofday(&tv, NULL);
-    ust = ((long long)tv.tv_sec)*1000000;
-    ust += tv.tv_usec;
-    return ust;
-}
-
 static int fdSetBlocking(int fd, int blocking) {
     int flags;
 
