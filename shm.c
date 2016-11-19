@@ -49,7 +49,7 @@ void __redisSetError(redisContext *c, int type, const char *str);
 
 
 #define X(...)
-//#define X printf
+/*#define X printf*/
 
 
 /* redisBufferRead thinks 16k is best for a temporary buffer reading replies.
@@ -74,9 +74,30 @@ static void sharedMemoryBufferInit(sharedMemoryBuffer *b) {
     CharFifo_Init(b, SHARED_MEMORY_BUF_SIZE);
 }
 
-/*TODO: hiredis conforms to the ancient rules of declaring c variables 
- * at the beginning of functions! */
+static int getRandomUUID(redisContext *c, char* buf, size_t size) {
+    FILE *fp;
+    size_t br;
+    
+    fp = fopen("/proc/sys/kernel/random/uuid", "r");
+    if (fp == NULL) {
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                "Can't read /proc/sys/kernel/random/uuid");
+        return 0;
+    }
+    br = fread(buf, 1, size, fp);
+    fclose(fp);
+    if (br != size) {
+        sharedMemoryFree(c);
+        __redisSetError(c,REDIS_ERR_OTHER,
+                "Incomplete read of /proc/sys/kernel/random/uuid");
+        return 0;
+    }
+    return 1;
+}
+
 static int sharedMemoryContextInit(redisContext *c, mode_t mode) {
+    int fd;
     
     c->shm_context = malloc(sizeof(redisSharedMemoryContext));
     if (c->shm_context == NULL) {
@@ -89,20 +110,7 @@ static int sharedMemoryContextInit(redisContext *c, mode_t mode) {
     c->shm_context->mode = SHARED_MEMORY_DEFAULT_MODE;
     
     /* Use standard UUID to distinguish among clients. */
-    FILE *fp = fopen("/proc/sys/kernel/random/uuid", "r");
-    if (fp == NULL) {
-        sharedMemoryFree(c);
-        __redisSetError(c,REDIS_ERR_OTHER,
-                "Can't read /proc/sys/kernel/random/uuid");
-        return 0;
-    }
-    size_t btr = sizeof(c->shm_context->name)-2;
-    size_t br = fread(c->shm_context->name+1, 1, btr, fp);
-    fclose(fp);
-    if (br != btr) {
-        sharedMemoryFree(c);
-        __redisSetError(c,REDIS_ERR_OTHER,
-                "Incomplete read of /proc/sys/kernel/random/uuid");
+    if (!getRandomUUID(c, c->shm_context->name+1, sizeof(c->shm_context->name)-2)) {
         return 0;
     }
     c->shm_context->name[0] = '/';
@@ -111,7 +119,7 @@ static int sharedMemoryContextInit(redisContext *c, mode_t mode) {
     
     /* Get that shared memory up and running! */
     shm_unlink(c->shm_context->name);
-    int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),mode);
+    fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),mode);
     if (fd < 0) {
         sharedMemoryFree(c);
         __redisSetError(c,REDIS_ERR_OTHER,
@@ -158,12 +166,14 @@ static void sharedMemoryProcessShmOpenReply(redisContext *c, redisReply *reply)
 static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
     
     int version = 1;
+    redisReply *reply;
+    redisSharedMemoryContext *tmp;
     
     /* Temporarily disabling the shm context, so the command does not attempt to
      * be sent through the shared memory. */
-    redisSharedMemoryContext *tmp = c->shm_context;
+    tmp = c->shm_context;
     c->shm_context = NULL;
-    redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
+    reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
     c->shm_context = tmp;
 
     if (c->flags & REDIS_BLOCK) {
@@ -235,8 +245,13 @@ static int fdSetBlocking(int fd, int blocking) {
 }
 
 
-static int isConnectionBroken(redisContext *c, size_t iteration)
-{
+static int isConnectionBroken(redisContext *c, size_t iteration) {
+    fd_set rfds;
+    struct timeval tv;
+    int selret;
+    ssize_t readret;
+    char tmp;
+    
     /* select() is relatively slow, and even gettimeofday() is. Just skip iterations 
      * on count, delaying the recognition of broken connections, but keeping normal
      * latency good. On my reference computer, an iteration takes ~5ns. */
@@ -245,13 +260,11 @@ static int isConnectionBroken(redisContext *c, size_t iteration)
     }
     
     /* Checking for connection failure with select(). */
-    fd_set rfds;
     FD_ZERO(&rfds);
     FD_SET(c->fd, &rfds);
-    struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = 0;
-    int selret = select(c->fd + 1, &rfds, NULL, NULL, &tv);
+    selret = select(c->fd + 1, &rfds, NULL, NULL, &tv);
     if (selret == 0 || (selret == -1 && errno == EINTR)) {
         return 0;
     }
@@ -265,8 +278,7 @@ static int isConnectionBroken(redisContext *c, size_t iteration)
     if (c->flags & REDIS_BLOCK) {
         fdSetBlocking(c->fd, 0);
     }
-    char tmp;
-    ssize_t readret = read(c->fd, &tmp, 1);
+    readret = read(c->fd, &tmp, 1);
     if (c->flags & REDIS_BLOCK) {
         fdSetBlocking(c->fd, 1);
     }
@@ -289,12 +301,13 @@ ssize_t sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
     size_t bw = 0;
     int conn_broken = 0;
     sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
+    size_t free;
     do {
         conn_broken = isConnectionBroken(c, iteration++);
         if (conn_broken) {
             break;
         }
-        size_t free = CharFifo_FreeSpace(target);
+        free = CharFifo_FreeSpace(target);
         if (btw <= PIPE_BUF && free < btw) { /* POSIX atomic write incomplete? */
             if (c->flags & REDIS_BLOCK) {
                 continue;
@@ -330,12 +343,13 @@ ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
     size_t br;
     int conn_broken = 0;
     sharedMemoryBuffer *source = &c->shm_context->mem->to_client;
+    size_t used;
     do {
         conn_broken = isConnectionBroken(c, iteration++);
         if (conn_broken) {
             break;
         }
-        size_t used = CharFifo_UsedSpace(source);
+        used = CharFifo_UsedSpace(source);
         if (used > 0) {
             br = (used < btr ? used : btr);
             CharFifo_Read(source,buf,br);
