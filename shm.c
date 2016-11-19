@@ -149,6 +149,8 @@ static void sharedMemoryProcessShmOpenReply(redisContext *c, redisReply *reply)
     }
 }
 
+/*TODO?: Allow the user to communicate through user's channels, not require TCP or socket? 
+ * ^ Complicates the API and implementation, but does it solve any real world issue? */
 static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
     
     int version = 1;
@@ -157,7 +159,6 @@ static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
      * be sent through the shared memory. */
     redisSharedMemoryContext *tmp = c->shm_context;
     c->shm_context = NULL;
-    /*TODO: Allow the user to communicate through user's channels, not require TCP or socket. */
     redisReply *reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
     c->shm_context = tmp;
 
