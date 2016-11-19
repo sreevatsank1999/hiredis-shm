@@ -821,11 +821,7 @@ int redisBufferRead(redisContext *c) {
     }
     if (nread > 0) {
         total += nread;
-    } else {
-        printf("nread: %d\n", nread);
     }
-//    printf("blaa");
-//    printf("%s", buf);
     if (nread < 0) {
         if (c->shm_context != NULL) {
             err = -nread;
