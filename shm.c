@@ -314,10 +314,11 @@ ssize_t sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
         return bw;
     } else {
         if (conn_broken) {
-            return -EPIPE;
+            errno = EPIPE;
         } else {
-            return -EAGAIN; /* see .h */
+            errno = EAGAIN;
         }
+        return -1;
     }
 }
 
@@ -346,7 +347,8 @@ ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
         if (conn_broken) {
             return 0;
         } else {
-            return -EAGAIN; /* see .h */
+            errno = EAGAIN;
+            return -1;
         }
     }
 }

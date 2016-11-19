@@ -960,11 +960,9 @@ redisPushFn *redisSetPushCallback(redisContext *c, redisPushFn *fn) {
  *
  * After this function is called, you may use redisGetReplyFromReader to
  * see if there is a reply available. */
-volatile int total = 0;
 int redisBufferRead(redisContext *c) {
     char buf[1024*16];
     int nread;
-    int err;
 
     /* Return early when the context has seen an error. */
     if (c->err)
