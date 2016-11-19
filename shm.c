@@ -164,6 +164,9 @@ static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
 
     if (c->flags & REDIS_BLOCK) {
         sharedMemoryProcessShmOpenReply(c, reply);
+    } else {
+        /* The shared memory context remains partially initialized,
+         * until the non-blocking connection reads the reply. */
     }
 
     return reply;
@@ -177,10 +180,16 @@ redisReply *sharedMemoryInit(redisContext *c) {
     return sharedMemoryEstablishCommunication(c);
 }
 
+int isSharedMemoryContextInitialized(struct redisContext *c) {
+    /* Until sharedMemoryProcessShmOpenReply is called, the context is only
+     * partially initialized. */
+    return c->shm_context != NULL && c->shm_context->name[0] == '\0';
+}
+
 void sharedMemoryInitAfterReply(struct redisContext *c, redisReply *reply)
 {
-    if (!(c->flags & REDIS_BLOCK) && c->shm_context != NULL
-            && c->shm_context->name[0] != '\0') {
+    if (!(c->flags & REDIS_BLOCK) 
+            && c->shm_context != NULL && c->shm_context->name[0] != '\0') {
         /* A non-blocking context has received the acknowledgement
          * that the shared memory communication was successful or failed. */
         sharedMemoryProcessShmOpenReply(c, reply);

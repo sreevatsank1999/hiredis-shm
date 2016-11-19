@@ -42,6 +42,7 @@ struct redisContext;
 struct redisReply;
 
 struct redisReply *sharedMemoryInit(struct redisContext *c);
+int isSharedMemoryContextInitialized(struct redisContext *c);
 void sharedMemoryInitAfterReply(struct redisContext *c, struct redisReply *reply);
 void sharedMemoryFree(struct redisContext *c);
 /* These act as write()/read(), with the same rules and returns and errno. */
