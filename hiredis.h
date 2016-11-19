@@ -307,7 +307,8 @@ redisContext *redisConnectFd(redisFD fd);
  * the request, returns NULL and c->err and c->errstr describe the error.
  * In a non-blocking context, always returns NULL, but the corresponding
  * redisAppendCommand is called. The non-blocking context requires
- * that, at the time of the call, no unprocessed commands exist.
+ * that, at the time of the call, no unprocessed commands exist, and
+ * no other appear until you process the result.
  * 
  * Note that, unlike socket writes/reads, a blocking shared memory communication 
  * can't be aborted by issuing a signal.

@@ -968,7 +968,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    if (c->shm_context != NULL) 
+    if (isSharedMemoryContextInitialized(c)) 
         nread = sharedMemoryRead(c,buf,sizeof(buf));
         // total += nread;
     else 
@@ -1001,7 +1001,7 @@ int redisBufferWrite(redisContext *c, int *done) {
     
     if (sdslen(c->obuf) > 0) {
         ssize_t nwritten;
-        if (c->shm_context != NULL)
+        if (isSharedMemoryContextInitialized(c)) 
             nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
         else 
             nwritten = c->funcs->write(c);
