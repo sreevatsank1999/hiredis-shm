@@ -985,7 +985,7 @@ int redisBufferRead(redisContext *c) {
     }
     return REDIS_OK;
 }
-
+ 
 /* Write the output buffer to the socket.
  *
  * Returns REDIS_OK when the buffer is empty, or (a part of) the buffer was
