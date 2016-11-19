@@ -37,6 +37,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <errno.h>
+#include <limits.h>
+#include <sys/socket.h>
 
 #include "shm.h"
 #include "hiredis.h"
@@ -211,18 +213,94 @@ static long long ustime(void) {
     return ust;
 }
 
-int sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
+static int fdSetBlocking(int fd, int blocking) {
+    int flags;
+
+    if ((flags = fcntl(fd, F_GETFL)) == -1) {
+        return 0;
+    }
+
+    if (blocking)
+        flags &= ~O_NONBLOCK;
+    else
+        flags |= O_NONBLOCK;
+
+    if (fcntl(fd, F_SETFL, flags) == -1) {
+        return 0;
+    }
+    return 1;
+}
+
+
+static int isConnectionBroken(redisContext *c, size_t iteration)
+{
+    /* select() is relatively slow, and even gettimeofday() is. Just skip iterations 
+     * on count, delaying the recognition of broken connections, but keeping normal
+     * latency good. On my reference computer, an iteration takes ~5ns. */
+    if (iteration == 0 || iteration % 10000 != 0) {
+        return 0;
+    }
+    
+    /* Checking for connection failure with select(). */
+    fd_set rfds;
+    FD_ZERO(&rfds);
+    FD_SET(c->fd, &rfds);
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+    int selret = select(c->fd + 1, &rfds, NULL, NULL, &tv);
+    if (selret == 0 || (selret == -1 && errno == EINTR)) {
+        return 0;
+    }
+    if (selret == -1) {
+        return 1; /* Even at ENOMEM, it's safest to drop the connection than not know
+                     if the connection is failed, blocking indefinitely. */ 
+    }
+    
+    /* Read under O_NONBLOCK. Man pages warn of oddities which could cause blocking. 
+     * This is only needed to read the very likely EOF, so not a load on performance. */
+    if (c->flags & REDIS_BLOCK) {
+        fdSetBlocking(c->fd, 0);
+    }
+    char tmp;
+    ssize_t readret = read(c->fd, &tmp, 1);
+    if (c->flags & REDIS_BLOCK) {
+        fdSetBlocking(c->fd, 1);
+    }
+    
+    /* Check for EOF and unexpected behaviour. */
+    return (readret >= 0 || (readret == -1 && errno != EAGAIN && errno != EINTR)); 
+}
+
+/* PIPE_BUF is usually 4k, but there are no guarantees, therefore I'm being 
+ * slightly paranoid. Attempting to comply with POSIX atomic writes needs this.
+ * I don't really need those atomic writes because hiredis uses a single writer,
+ * but pretty code and stuff. */ 
+#if PIPE_BUF > SHARED_MEMORY_BUF_SIZE
+#error "PIPE_BUF > SHARED_MEMORY_BUF_SIZE"
+#endif
+
+ssize_t sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
+    size_t iteration = 0;
     int btw_chunk;
     size_t bw = 0;
+    int conn_broken = 0;
+    sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
     do {
-        sharedMemoryBuffer *target = &c->shm_context->mem->to_server;
+        conn_broken = isConnectionBroken(c, iteration++);
+        if (conn_broken) {
+            break;
+        }
         size_t free = CharFifo_FreeSpace(target);
-        if (free > 0) {
-            if (btw - bw > free) {
-                btw_chunk = free;
+        if (btw <= PIPE_BUF && free < btw) { /* POSIX atomic write incomplete? */
+            if (c->flags & REDIS_BLOCK) {
+                continue;
             } else {
-                btw_chunk = btw - bw;
+                break;
             }
+        }
+        if (free > 0) {
+            btw_chunk = (free < btw-bw ? free : btw-bw);
             CharFifo_Write(target,buf+bw,btw_chunk);
             bw += btw_chunk;
         }
@@ -230,33 +308,45 @@ int sharedMemoryWrite(redisContext *c, char *buf, size_t btw) {
          * latency is best if done this way, and the server will likely
          * free some space soon. */ 
     } while (bw < btw && (c->flags & REDIS_BLOCK));
+    
     if (bw != 0 || btw == 0) {
+        /* Return written bytes even if conn_broken, as write() would due to SIGPIPE. */
         return bw;
     } else {
-        return -EAGAIN; /* see .h */
+        if (conn_broken) {
+            return -EPIPE;
+        } else {
+            return -EAGAIN; /* see .h */
+        }
     }
 }
 
 ssize_t sharedMemoryRead(redisContext *c, char *buf, size_t btr) {
-    int err;
+    size_t iteration = 0;
+    size_t br;
+    int conn_broken = 0;
+    sharedMemoryBuffer *source = &c->shm_context->mem->to_client;
     do {
-        sharedMemoryBuffer *source = &c->shm_context->mem->to_client;
+        conn_broken = isConnectionBroken(c, iteration++);
+        if (conn_broken) {
+            break;
+        }
         size_t used = CharFifo_UsedSpace(source);
-        err = EAGAIN;
         if (used > 0) {
-            err = 0; /* btr is optimistic. I need to return with whatever I get. */
-            if (btr > used) {
-                btr = used;
-            }
-            CharFifo_Read(source,buf,btr);
+            br = (used < btr ? used : btr);
+            CharFifo_Read(source,buf,br);
         }
         /* This hogs up CPU when no free space and REDIS_BLOCK is on, but 
          * latency is best if done this way, and the server will likely
          * send a reply soon. */ 
-    } while (err == EAGAIN && (c->flags & REDIS_BLOCK));
-    if (err == 0) {
-        return btr;
+    } while (br == 0 && (c->flags & REDIS_BLOCK));
+    if (br != 0) {
+        return br;
     } else {
-        return -err; /* see .h */
+        if (conn_broken) {
+            return 0;
+        } else {
+            return -EAGAIN; /* see .h */
+        }
     }
 }
