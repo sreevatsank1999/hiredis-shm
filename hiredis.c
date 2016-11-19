@@ -752,8 +752,16 @@ int redisFreeKeepFd(redisContext *c) {
     return fd;
 }
 
+redisReply *redisUseSharedMemoryWithMode(redisContext *c, mode_t mode) {
+    return sharedMemoryInit(c,mode);
+}
+
 redisReply *redisUseSharedMemory(redisContext *c) {
-    return sharedMemoryInit(c);
+    return redisUseSharedMemoryWithMode(c,SHARED_MEMORY_DEFAULT_MODE);
+}
+
+int redisIsSharedMemoryInitialized(redisContext *c) {
+    return sharedMemoryIsInitialized(c);
 }
 
 int redisReconnect(redisContext *c) {
@@ -773,15 +781,10 @@ int redisReconnect(redisContext *c) {
     c->obuf = sdsempty();
     c->reader = redisReaderCreate();
 
-    if (c->shm_context != NULL) {
-        sharedMemoryFree(c);
-        sharedMemoryInit(c);
-    }
-    
-    if (c->obuf == NULL || c->reader == NULL) {
-        __redisSetError(c, REDIS_ERR_OOM, "Out of memory");
-        return REDIS_ERR;
-    }
+    /* Complete reinitializing of shared memory in a non-blocking mode 
+     * is not possible, so, to avoid a confusing API, the new connection 
+     * does not use shared memory. */
+    sharedMemoryFree(c);
 
     int ret = REDIS_ERR;
     if (c->connection_type == REDIS_CONN_TCP) {
@@ -968,7 +971,7 @@ int redisBufferRead(redisContext *c) {
     if (c->err)
         return REDIS_ERR;
 
-    if (isSharedMemoryContextInitialized(c)) 
+    if (sharedMemoryIsInitialized(c)) 
         nread = sharedMemoryRead(c,buf,sizeof(buf));
         // total += nread;
     else 
@@ -1001,7 +1004,7 @@ int redisBufferWrite(redisContext *c, int *done) {
     
     if (sdslen(c->obuf) > 0) {
         ssize_t nwritten;
-        if (isSharedMemoryContextInitialized(c)) 
+        if (sharedMemoryIsInitialized(c)) 
             nwritten = sharedMemoryWrite(c,c->obuf,sdslen(c->obuf));
         else 
             nwritten = c->funcs->write(c);
