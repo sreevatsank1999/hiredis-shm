@@ -65,6 +65,7 @@ typedef volatile struct sharedMemory {
 
 typedef struct redisSharedMemoryContext {
     char name[38]; /* Shared memory file name. */
+    mode_t mode;
     struct sharedMemory *mem;
 } redisSharedMemoryContext;
 
@@ -75,7 +76,7 @@ static void sharedMemoryBufferInit(sharedMemoryBuffer *b) {
 
 /*TODO: hiredis conforms to the ancient rules of declaring c variables 
  * at the beginning of functions! */
-static int sharedMemoryContextInit(redisContext *c) {
+static int sharedMemoryContextInit(redisContext *c, mode_t mode) {
     
     c->shm_context = malloc(sizeof(redisSharedMemoryContext));
     if (c->shm_context == NULL) {
@@ -85,6 +86,8 @@ static int sharedMemoryContextInit(redisContext *c) {
     
     c->shm_context->mem = MAP_FAILED;
     c->shm_context->name[0] = '\0';
+    c->shm_context->mode = SHARED_MEMORY_DEFAULT_MODE;
+    
     /* Use standard UUID to distinguish among clients. */
     FILE *fp = fopen("/proc/sys/kernel/random/uuid", "r");
     if (fp == NULL) {
@@ -104,10 +107,11 @@ static int sharedMemoryContextInit(redisContext *c) {
     }
     c->shm_context->name[0] = '/';
     c->shm_context->name[sizeof(c->shm_context->name)-1] = '\0';
+    c->shm_context->mode = mode;
     
     /* Get that shared memory up and running! */
     shm_unlink(c->shm_context->name);
-    int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),00700); /*TODO: mode needs config, similar to 'unixsocketperm' */
+    int fd = shm_open(c->shm_context->name,(O_RDWR|O_CREAT|O_EXCL),mode);
     if (fd < 0) {
         sharedMemoryFree(c);
         __redisSetError(c,REDIS_ERR_OTHER,
@@ -172,15 +176,15 @@ static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
     return reply;
 }
 
-redisReply *sharedMemoryInit(redisContext *c) {
-    int ok = sharedMemoryContextInit(c);
+redisReply *sharedMemoryInit(redisContext *c, mode_t mode) {
+    int ok = sharedMemoryContextInit(c,mode);
     if (!ok) {
         return NULL;
     }
     return sharedMemoryEstablishCommunication(c);
 }
 
-int isSharedMemoryContextInitialized(struct redisContext *c) {
+int sharedMemoryIsInitialized(struct redisContext *c) {
     /* Until sharedMemoryProcessShmOpenReply is called, the context is only
      * partially initialized. */
     return c->shm_context != NULL && c->shm_context->name[0] == '\0';

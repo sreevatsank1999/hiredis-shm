@@ -41,10 +41,20 @@
 struct redisContext;
 struct redisReply;
 
-struct redisReply *sharedMemoryInit(struct redisContext *c);
-int isSharedMemoryContextInitialized(struct redisContext *c);
+/* The shared memory file is created with these permissions, by default. */
+#define SHARED_MEMORY_DEFAULT_MODE 00700
+
+/* Initializes the shared memory communication. In a non-blocking context,
+ * this only partially initializes, and needs to be completed by a call
+ * to sharedMemoryInitAfterReply. This call is implicit in a blocking context. */
+struct redisReply *sharedMemoryInit(struct redisContext *c, mode_t mode);
 void sharedMemoryInitAfterReply(struct redisContext *c, struct redisReply *reply);
+
+/* Returns true if the shared memory communication is completely initialized. */
+int sharedMemoryIsInitialized(struct redisContext *c);
+
 void sharedMemoryFree(struct redisContext *c);
+
 /* These act as write()/read(), with the same rules and returns and errno. */
 ssize_t sharedMemoryWrite(struct redisContext *c, char *buf, size_t btw);
 ssize_t sharedMemoryRead(struct redisContext *c, char *buf, size_t btr);
