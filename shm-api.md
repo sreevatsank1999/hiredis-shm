@@ -14,6 +14,8 @@ if (reply != NULL && reply->type == REDIS_REPLY_INTEGER && reply->integer == 1) 
 // typical hiredis use from now on, nothing special.
 ```
 
+^ This is typically all you need to know. The rest is just more complicated use cases.
+
 ### Asynchronous API
 
 ```
