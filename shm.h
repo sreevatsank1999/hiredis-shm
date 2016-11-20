@@ -50,6 +50,10 @@ struct redisReply;
 struct redisReply *sharedMemoryInit(struct redisContext *c, mode_t mode);
 void sharedMemoryInitAfterReply(struct redisContext *c, struct redisReply *reply);
 
+/* Formats the command sent by sharedMemoryInit. Only works after a successful
+ * call to sharedMemoryInit! */
+int sharedMemoryFormatShmOpen(struct redisContext *c, char **cmd);
+
 /* Returns true if the shared memory communication is completely initialized. */
 int sharedMemoryIsInitialized(struct redisContext *c);
 

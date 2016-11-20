@@ -126,6 +126,10 @@ int redisAsyncSetTimeout(redisAsyncContext *ac, struct timeval tv);
 void redisAsyncDisconnect(redisAsyncContext *ac);
 void redisAsyncFree(redisAsyncContext *ac);
 
+/* Use shared memory. These functions must be called immediately after connect. */
+int redisAsyncUseSharedMemory(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata);
+int redisAsyncUseSharedMemoryWithMode(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, mode_t mode);
+
 /* Handle read/write events */
 void redisAsyncHandleRead(redisAsyncContext *ac);
 void redisAsyncHandleWrite(redisAsyncContext *ac);
