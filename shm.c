@@ -47,6 +47,7 @@
 
 void __redisSetError(redisContext *c, int type, const char *str);
 
+#define SHARED_MEMORY_PROTO_VERSION 1
 
 #define X(...)
 /*#define X printf*/
@@ -161,11 +162,25 @@ static void sharedMemoryProcessShmOpenReply(redisContext *c, redisReply *reply)
     }
 }
 
+static int formatCommand(char **cmd, const char *format, ...) {
+    int len;
+
+    va_list ap;
+    va_start(ap, format);
+    len = redisvFormatCommand(cmd, format, ap);
+    va_end(ap);
+    
+    return len;
+}
+
+int sharedMemoryFormatShmOpen(redisContext *c, char **cmd) {
+    return formatCommand(cmd,"SHM.OPEN %d %s",SHARED_MEMORY_PROTO_VERSION,c->shm_context->name);
+}
+
 /*TODO?: Allow the user to communicate through user's channels, not require TCP or socket? 
  * ^ Complicates the API and implementation, but does it solve any real world issue? */
 static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
     
-    int version = 1;
     redisReply *reply;
     redisSharedMemoryContext *tmp;
     
@@ -173,7 +188,7 @@ static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
      * be sent through the shared memory. */
     tmp = c->shm_context;
     c->shm_context = NULL;
-    reply = redisCommand(c,"SHM.OPEN %d %s",version,tmp->name);
+    reply = redisCommand(c,"SHM.OPEN %d %s",SHARED_MEMORY_PROTO_VERSION,tmp->name);
     c->shm_context = tmp;
 
     if (c->flags & REDIS_BLOCK) {
@@ -187,6 +202,11 @@ static redisReply *sharedMemoryEstablishCommunication(redisContext *c) {
 }
 
 redisReply *sharedMemoryInit(redisContext *c, mode_t mode) {
+    /* In a non-blocking context, NULL is always returned, so to recognize
+     * and error from success, the old context error needs to be nullified. */ 
+    c->err = 0;
+    memset(c->errstr, '\0', strlen(c->errstr));
+
     int ok = sharedMemoryContextInit(c,mode);
     if (!ok) {
         return NULL;
