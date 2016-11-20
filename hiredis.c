@@ -753,6 +753,11 @@ int redisFreeKeepFd(redisContext *c) {
 }
 
 redisReply *redisUseSharedMemoryWithMode(redisContext *c, mode_t mode) {
+    if (c->shm_context != NULL) {
+        __redisSetError(c,REDIS_ERR_OTHER,"Attempted to initialize shared memory "
+                                          "more than once for a context.");
+        return NULL;
+    }
     return sharedMemoryInit(c,mode);
 }
 
