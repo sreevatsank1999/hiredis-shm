@@ -1,6 +1,6 @@
 # Shared memory client for redis-module-shm
 
-This Hiredis fork implements the client side for [redis-module-shm](https://github.com/edgarsi/redis-module-shm). It is currently in early development, and shouldn't be considered for use by anyone.
+This Hiredis fork implements the client side for [redis-module-shm](https://github.com/edgarsi/redis-module-shm). See the shared memory specific [API description and examples](shm-api.md). All the rest of Hiredis is described below.
 
 ---
 
