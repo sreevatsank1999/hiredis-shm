@@ -246,7 +246,7 @@ endif
 
 hiredis-test: test.o $(TEST_LIBS)
 	$(CC) -o $@ $(REAL_CFLAGS) -I. $^ $(REAL_LDFLAGS) $(TEST_LDFLAGS)
-
+ 
 hiredis-%: %.o $(STLIBNAME)
 	$(CC) $(REAL_CFLAGS) -o $@ $< $(TEST_LIBS) $(REAL_LDFLAGS)
 
