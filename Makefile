@@ -144,7 +144,7 @@ examples: $(EXAMPLES)
 hiredis-test: test.o $(STLIBNAME)
 
 hiredis-%: %.o $(STLIBNAME)
-	$(CC) $(REAL_CFLAGS) -o $@ $(REAL_LDFLAGS) $< $(STLIBNAME)
+	$(CC) $(REAL_CFLAGS) -o $@ $< $(STLIBNAME) $(REAL_LDFLAGS)
 
 test: hiredis-test
 	./hiredis-test
