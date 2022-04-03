@@ -43,7 +43,7 @@
 #include "shm.h"
 #include "hiredis.h"
 
-#include "lockless-char-fifo/charfifo.h"
+#include "charfifo.h"
 
 void __redisSetError(redisContext *c, int type, const char *str);
 
