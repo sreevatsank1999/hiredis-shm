@@ -250,6 +250,30 @@ int redisAsyncUseSharedMemory(redisAsyncContext *ac, redisCallbackFn *fn, void *
     return redisAsyncUseSharedMemoryWithMode(ac,fn,privdata,SHARED_MEMORY_DEFAULT_MODE);
 }
 
+int redisAsyncUseSharedMemoryWithMode(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata, mode_t mode) {
+    redisContext *c = &(ac->c);
+    char *cmd;
+    int len;
+    
+    redisUseSharedMemoryWithMode(c,mode);
+    if (c->err != 0 || c->shm_context == NULL) {
+        return REDIS_ERR;
+    }
+    
+    /* redisUseSharedMemory adds the SHM.OPEN command in queue already,
+     * but the same is done by redisvAsyncCommand. Getting rid of the
+     * duplicate is fine because no other commands must be in queue. */
+    sdsfree(c->obuf);
+    c->obuf = sdsempty();
+    
+    len = sharedMemoryFormatShmOpen(c,&cmd);
+    return redisAsyncFormattedCommand(ac,fn,privdata,cmd,len);
+}
+
+int redisAsyncUseSharedMemory(redisAsyncContext *ac, redisCallbackFn *fn, void *privdata) {
+    return redisAsyncUseSharedMemoryWithMode(ac,fn,privdata,SHARED_MEMORY_DEFAULT_MODE);
+}
+
 int redisAsyncSetConnectCallback(redisAsyncContext *ac, redisConnectCallback *fn) {
     if (ac->onConnect == NULL) {
         ac->onConnect = fn;
