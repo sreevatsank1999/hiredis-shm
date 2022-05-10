@@ -5,4 +5,5 @@
 /*.dylib
 /*.a
 /*.pc
-/Debug/
+*.dSYM
+tags
