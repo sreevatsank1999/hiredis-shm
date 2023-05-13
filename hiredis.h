@@ -43,6 +43,7 @@ typedef long long ssize_t;
 #endif
 #include <stdint.h> /* uintXX_t, etc */
 #include "sds.h" /* for sds */
+#include "shm.h"
 
 #define HIREDIS_MAJOR 1
 #define HIREDIS_MINOR 0
@@ -281,7 +282,6 @@ typedef struct redisContext {
 
     /* An optional RESP3 PUSH handler */
     redisPushFn *push_cb;
-    sharedMemoryContext shm_context;
     struct redisSharedMemoryContext *shm_context;
 
 } redisContext;
@@ -298,32 +298,6 @@ redisContext *redisConnectUnix(const char *path);
 redisContext *redisConnectUnixWithTimeout(const char *path, const struct timeval tv);
 redisContext *redisConnectUnixNonBlock(const char *path);
 redisContext *redisConnectFd(redisFD fd);
-
-/**
- * Try to use shared memory for communicating with the server.
- * 
- * In a blocking context, a successful initialization returns a reply 
- * containing the integer 1. If there was an error in performing
- * the request, may return either 1) a REDIS_REPLY_ERROR reply,
- * or 2) NULL and c->err and c->errstr describing the error.
- * In a non-blocking context, always returns NULL, but the corresponding
- * redisAppendCommand is called. The non-blocking context requires
- * that, at the time of the call, no unprocessed commands exist, and
- * no other appear until you consume the result.
- * 
- * Note that, unlike socket writes/reads, a blocking shared memory communication 
- * can't be aborted by issuing a signal.
- */
-redisReply *redisUseSharedMemory(redisContext *c);
-
-/* Use this version of the above function when the default shared memory 
- * file permissions 00700 are insufficient. */
-redisReply *redisUseSharedMemoryWithMode(redisContext *c, mode_t mode);
-
-/* If shared memory initialized, returns 1. If not, returns 0.
- * In a non-blocking context, shared memory is only initialized when the 
- * result of the command initiated by redisUseSharedMemory is consumed. */
-int redisIsSharedMemoryInitialized(redisContext *c);
 
 /**
  * Try to use shared memory for communicating with the server.

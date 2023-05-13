@@ -740,7 +740,8 @@ void redisFree(redisContext *c) {
     if (c->funcs->free_privctx)
         c->funcs->free_privctx(c->privctx);
 
-    sharedMemoryContextFree(&c->shm_context);
+    sharedMemoryFree(c);
+
     memset(c, 0xff, sizeof(*c));
     hi_free(c);
 }
@@ -808,12 +809,7 @@ int redisReconnect(redisContext *c) {
         redisContextSetTimeout(c, *c->command_timeout);
     }
 
-    redisAfterConnect(c);
-
     return ret;
-}
-static void redisAfterConnect(redisContext* c) {
-    sharedMemoryAfterConnect(c);
 }
 
 redisContext *redisConnectWithOptions(const redisOptions *options) {
@@ -868,8 +864,6 @@ redisContext *redisConnectWithOptions(const redisOptions *options) {
     if (options->command_timeout != NULL && (c->flags & REDIS_BLOCK) && c->fd != REDIS_INVALID_FD) {
         redisContextSetTimeout(c, *options->command_timeout);
     }
-
-    redisAfterConnect(c);
 
     return c;
 }
