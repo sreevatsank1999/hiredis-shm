@@ -23,6 +23,7 @@
 #include <event2/event.h>
 #endif
 #include "net.h"
+#include "alloc.h"
 #include "win32.h"
 
 enum connection_type {

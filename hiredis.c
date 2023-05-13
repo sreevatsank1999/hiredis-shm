@@ -42,6 +42,7 @@
 #include "net.h"
 #include "sds.h"
 #include "shm.h"
+#include "alloc.h"
 #include "async.h"
 #include "win32.h"
 
@@ -740,7 +741,6 @@ void redisFree(redisContext *c) {
         c->funcs->free_privctx(c->privctx);
 
     sharedMemoryContextFree(&c->shm_context);
-
     memset(c, 0xff, sizeof(*c));
     hi_free(c);
 }

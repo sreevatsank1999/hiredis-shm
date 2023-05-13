@@ -50,6 +50,9 @@ ADD_LIBRARY(hiredis_static STATIC ${hiredis_sources})
 ADD_LIBRARY(hiredis::hiredis ALIAS hiredis)
 ADD_LIBRARY(hiredis::hiredis_static ALIAS hiredis_static)
 
+TARGET_LINK_LIBRARIES(hiredis PUBLIC rt)
+TARGET_LINK_LIBRARIES(hiredis_static PUBLIC rt)
+
 SET_TARGET_PROPERTIES(hiredis
     PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE
     VERSION "${HIREDIS_SONAME}")

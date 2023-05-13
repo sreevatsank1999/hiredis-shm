@@ -43,6 +43,7 @@
 #include <stdlib.h>
 
 #include "net.h"
+#include "alloc.h"
 #include "sds.h"
 #include "sockcompat.h"
 #include "win32.h"

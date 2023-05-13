@@ -268,9 +268,6 @@ charfifo.o:
 shm.o:
 	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) -D_XOPEN_SOURCE=500 $<
 
-charfifo.o:
-	$(CC) -std=c99 -pedantic -c $(REAL_CFLAGS) $<
-
 clean:
 	rm -rf $(DYLIBNAME) $(STLIBNAME) $(SSL_DYLIBNAME) $(SSL_STLIBNAME) $(TESTS) $(PKGCONFNAME) examples/hiredis-example* *.o *.gcda *.gcno *.gcov
 
